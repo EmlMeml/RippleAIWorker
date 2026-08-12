@@ -21,16 +21,24 @@ interface OpenRouterErrorResponse {
   };
 }
 
-const ALLOWED_ORIGIN = "https://emlmeml.github.io";
-
 function corsHeaders(origin: string | null): HeadersInit {
-  return {
-    "Access-Control-Allow-Origin":
-      origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : "null",
+  const allowedOrigins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://emlmeml.github.io",
+  ];
+
+  const headers: HeadersInit = {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Content-Type": "application/json",
   };
+
+  if (origin && allowedOrigins.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+
+  return headers;
 }
 
 function json(
