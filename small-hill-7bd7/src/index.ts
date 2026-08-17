@@ -192,6 +192,45 @@ function isValidFactExtraction(
     }
 
     // -----------------------------
+    // Temporal Context
+    // -----------------------------
+
+    if (
+      f.temporal !== undefined
+    ) {
+      if (
+        !f.temporal ||
+        typeof f.temporal !== "object"
+      ) {
+        return false;
+      }
+
+      const temporal =
+        f.temporal as Record<string, unknown>;
+
+      if (
+        temporal.text !== undefined &&
+        typeof temporal.text !== "string"
+      ) {
+        return false;
+      }
+
+      if (
+        temporal.from !== undefined &&
+        typeof temporal.from !== "string"
+      ) {
+        return false;
+      }
+
+      if (
+        temporal.to !== undefined &&
+        typeof temporal.to !== "string"
+      ) {
+        return false;
+      }
+    }
+
+    // -----------------------------
     // Age
     // -----------------------------
 
@@ -332,7 +371,7 @@ export default {
                 },
             ],
 
-            temperature: 0.1,
+            temperature: 0,
 
             response_format: {
               type: "json_schema",
@@ -417,8 +456,24 @@ export default {
                           object: {
                             type: "string",
                           },
-                        },
 
+                          temporal: {
+                            type: "object",
+                            properties: {
+                              text: {
+                                type: "string",
+                              },
+
+                              from: {
+                                type: "string",
+                              },
+
+                              to: {
+                                type: "string",
+                              },
+                            },
+                          },
+                        },
                         required: [
                           "subject",
                           "predicate",
@@ -497,6 +552,11 @@ export default {
           origin
         );
       }
+
+      console.log(
+        "FACT EXTRACTION RESULT:",
+        JSON.stringify(parsed, null, 2)
+      );
 
       if (!isValidFactExtraction(parsed)) {
         console.error(
