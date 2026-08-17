@@ -463,17 +463,18 @@ export default {
                               text: {
                                 type: "string",
                               },
-
                               from: {
                                 type: "string",
                               },
-
                               to: {
                                 type: "string",
                               },
                             },
+                            required: [],
+                            additionalProperties: false,
                           },
                         },
+
                         required: [
                           "subject",
                           "predicate",
