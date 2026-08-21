@@ -11,6 +11,7 @@ interface OpenRouterResponse {
     message?: {
       content?: string;
     };
+    
   }>;
 }
 
@@ -362,7 +363,7 @@ export default {
           },
 
           body: JSON.stringify({
-            model: "openai/gpt-oss-20b:free",
+            model: "poolside/laguna-xs-2.1:free",
 
             messages: [
                 {
