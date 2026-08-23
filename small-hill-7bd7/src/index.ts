@@ -9,10 +9,11 @@ interface ChatRequest {
 interface OpenRouterResponse {
   choices?: Array<{
     message?: {
-      content?: string;
+      content?: string | null;
     };
-    
+    finish_reason?: string | null;
   }>;
+  usage?: Record<string, unknown>;
 }
 
 interface OpenRouterErrorResponse {
@@ -21,6 +22,8 @@ interface OpenRouterErrorResponse {
     code?: number;
   };
 }
+
+const OPENROUTER_TIMEOUT_MS = 600_000;
 
 function corsHeaders(origin: string | null): HeadersInit {
   const allowedOrigins = [
@@ -163,6 +166,21 @@ function isValidFactExtraction(
 
     // Subject muss existieren
     if (!entityIds.has(f.subject)) {
+      return false;
+    }
+
+    // Quelle: Der Frontend-Editor verwendet den Absatzindex direkt für
+    // Navigation und Markierung der zugehörigen Textstelle.
+    if (!f.source || typeof f.source !== "object") {
+      return false;
+    }
+
+    const source = f.source as Record<string, unknown>;
+
+    if (
+      !Number.isInteger(source.paragraphIndex) ||
+      (source.paragraphIndex as number) < 0
+    ) {
       return false;
     }
 
@@ -342,6 +360,12 @@ export default {
       );
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      OPENROUTER_TIMEOUT_MS
+    );
+
     try {
       const response = await fetch(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -363,7 +387,7 @@ export default {
           },
 
           body: JSON.stringify({
-            model: "poolside/laguna-xs-2.1:free",
+            model: "openrouter/free",
 
             messages: [
                 {
@@ -373,6 +397,10 @@ export default {
             ],
 
             temperature: 0,
+
+            provider: {
+              allow_fallbacks: true,
+            },
 
             response_format: {
               type: "json_schema",
@@ -458,6 +486,18 @@ export default {
                             type: "string",
                           },
 
+                          source: {
+                            type: "object",
+                            properties: {
+                              paragraphIndex: {
+                                type: "integer",
+                                minimum: 0,
+                              },
+                            },
+                            required: ["paragraphIndex"],
+                            additionalProperties: false,
+                          },
+
                           temporal: {
                             type: "object",
                             properties: {
@@ -473,6 +513,7 @@ export default {
                         required: [
                           "subject",
                           "predicate",
+                          "source",
                         ],
 
                         additionalProperties: false,
@@ -490,6 +531,7 @@ export default {
               }
             }
           }),
+          signal: controller.signal,
         }
       );
 
@@ -520,9 +562,21 @@ export default {
         successData.choices?.[0]?.message?.content ?? "";
 
       if (!content) {
+        console.error("OpenRouter returned an empty completion", {
+          status: response.status,
+          finishReason: successData.choices?.[0]?.finish_reason,
+          choices: successData.choices,
+          usage: successData.usage,
+        });
+
         return json(
           {
-            error: "The AI returned an empty response."
+            error: "The AI returned an empty response.",
+            details: {
+              finishReason:
+                successData.choices?.[0]?.finish_reason ?? null,
+              usage: successData.usage ?? null,
+            },
           },
           502,
           origin
@@ -581,6 +635,17 @@ export default {
     } catch (error) {
       console.error(error);
 
+      if (controller.signal.aborted) {
+        return json(
+          {
+            error: "OpenRouter request timed out.",
+            timeoutMs: OPENROUTER_TIMEOUT_MS,
+          },
+          504,
+          origin
+        );
+      }
+
       return json(
         {
           error: "Internal server error",
@@ -588,6 +653,8 @@ export default {
         500,
         origin
       );
+    } finally {
+      clearTimeout(timeout);
     }
   },
 };
