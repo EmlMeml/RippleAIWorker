@@ -4,6 +4,7 @@ interface Env {
 
 interface ChatRequest {
   prompt: string;
+  responseType?: "fact_extraction" | "character_consistency";
 }
 
 interface OpenRouterResponse {
@@ -24,6 +25,81 @@ interface OpenRouterErrorResponse {
 }
 
 const OPENROUTER_TIMEOUT_MS = 600_000;
+
+const CHARACTER_CATEGORIES = [
+  "knowledge", "belief", "emotion", "goal", "motivation", "memory",
+  "relationship", "values_and_self_image", "fear_and_need", "development",
+  "thought_action_gap", "point_of_view",
+] as const;
+
+const CHARACTER_KINDS = [
+  "likely_contradiction", "unexplained_shift", "possible_ambiguity",
+  "knowledge_continuity", "point_of_view_issue",
+] as const;
+
+export function isValidCharacterConsistency(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const inconsistencies = (data as Record<string, unknown>).inconsistencies;
+  if (!Array.isArray(inconsistencies)) return false;
+
+  return inconsistencies.every((item) => {
+    if (!item || typeof item !== "object") return false;
+    const issue = item as Record<string, unknown>;
+    if (typeof issue.character !== "string" ||
+      !CHARACTER_CATEGORIES.includes(issue.category as typeof CHARACTER_CATEGORIES[number]) ||
+      !CHARACTER_KINDS.includes(issue.kind as typeof CHARACTER_KINDS[number]) ||
+      !["low", "medium", "high"].includes(String(issue.confidence)) ||
+      typeof issue.message !== "string" || typeof issue.explanation !== "string" ||
+      !Array.isArray(issue.evidence) || issue.evidence.length === 0) return false;
+
+    return issue.evidence.every((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const evidence = entry as Record<string, unknown>;
+      return Number.isInteger(evidence.paragraphIndex) &&
+        (evidence.paragraphIndex as number) >= 0 &&
+        typeof evidence.quote === "string" &&
+        typeof evidence.interpretation === "string";
+    });
+  });
+}
+
+const characterConsistencySchema = {
+  type: "object",
+  properties: {
+    inconsistencies: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          character: { type: "string" },
+          category: { type: "string", enum: [...CHARACTER_CATEGORIES] },
+          kind: { type: "string", enum: [...CHARACTER_KINDS] },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+          message: { type: "string" },
+          explanation: { type: "string" },
+          evidence: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: {
+                paragraphIndex: { type: "integer", minimum: 0 },
+                quote: { type: "string" },
+                interpretation: { type: "string" },
+              },
+              required: ["paragraphIndex", "quote", "interpretation"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["character", "category", "kind", "confidence", "message", "explanation", "evidence"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["inconsistencies"],
+  additionalProperties: false,
+};
 
 function corsHeaders(origin: string | null): HeadersInit {
   const allowedOrigins = [
@@ -339,6 +415,14 @@ export default {
       );
     }
 
+    if (body.responseType !== undefined &&
+      body.responseType !== "fact_extraction" &&
+      body.responseType !== "character_consistency") {
+      return json({ error: "Invalid responseType" }, 400, origin);
+    }
+
+    const responseType = body.responseType ?? "fact_extraction";
+
     // Prevent huge requests
     if (body.prompt.length > 50_000) {
       return json(
@@ -405,9 +489,11 @@ export default {
             response_format: {
               type: "json_schema",
               json_schema: {
-                name: "fact_extraction",
+                name: responseType,
                 strict: true,
-                schema: {
+                schema: responseType === "character_consistency"
+                  ? characterConsistencySchema
+                  : {
                   type: "object",
                   properties: {
                     entities: {
@@ -604,13 +690,17 @@ export default {
       }
 
       console.log(
-        "FACT EXTRACTION RESULT:",
+        `${responseType.toUpperCase()} RESULT:`,
         JSON.stringify(parsed, null, 2)
       );
 
-      if (!isValidFactExtraction(parsed)) {
+      const isValidResult = responseType === "character_consistency"
+        ? isValidCharacterConsistency(parsed)
+        : isValidFactExtraction(parsed);
+
+      if (!isValidResult) {
         console.error(
-          "INVALID FACT EXTRACTION:",
+          `INVALID ${responseType.toUpperCase()}:`,
           JSON.stringify(parsed, null, 2)
         );
 
