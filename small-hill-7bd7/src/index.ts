@@ -471,7 +471,9 @@ export default {
           },
 
           body: JSON.stringify({
-            model: "openrouter/free",
+            model: responseType === "character_consistency"
+              ? "nvidia/nemotron-3-super-120b-a12b:free"
+              : "liquid/lfm-2.5-2.6b:free",
 
             messages: [
                 {
@@ -484,6 +486,7 @@ export default {
 
             provider: {
               allow_fallbacks: true,
+              require_parameters: true,
             },
 
             response_format: {
